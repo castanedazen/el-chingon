@@ -68,9 +68,16 @@ canvas { touch-action: none; }
     </div>
 
     <div class="toast" id="toast"><span></span></div>
+
+    <!-- Missing image overlay (unchanged) -->
     <div class="overlay" id="imgOverlay"><div>
       <b>Falta <code>player.png</code></b><br>
       Coloca tu caricatura junto a <code>index.html</code> con nombre exacto <code>player.png</code>.
+    </div></div>
+
+    <!-- NEW: level-complete overlay -->
+    <div class="overlay" id="levelOverlay" style="display:none"><div id="levelMsg">
+      <!-- Populated by JS with level number -->
     </div></div>
   </div>
 </div>
@@ -138,7 +145,12 @@ const state={
   slowUntil:0, bootsUntil:0,
   slowAllUntil:0, shieldHits:0,
   obstacles:[], nopales:[], drops:[],
-  invincibleUntil: 0
+  invincibleUntil: 0,
+
+  /* NEW: post-win celebration state */
+  waitingLevelUp:false,
+  celebratingUntil:0,
+  nextLevelNumber:2
 };
 
 /* ===== player ===== */
@@ -220,7 +232,7 @@ function guardSpeedFactor(n){ return Math.min(2.0, Math.pow(1.07, n-1)); }
 
 /* ===== particles & emoji rain ===== */
 const particles=[]; // {x,y,vx,vy,g,life,color,txt?}
-function confettiBurst(x,y,n=160){ // bigger default
+function confettiBurst(x,y,n=160){
   for(let i=0;i<n;i++){
     particles.push({x,y,vx:rand(-260,260),vy:rand(-420,-160),g:620,life:1.2,color:`hsl(${Math.floor(rand(0,360))},85%,60%)`});
   }
@@ -422,7 +434,15 @@ function canvasToGameCoords(clientX,clientY){
   return { x:nx*W, y:ny*H };
 }
 function movePlayerToClientPoint(clientX,clientY){ const p=canvasToGameCoords(clientX,clientY); player.x=p.x; player.y=p.y; clampPlayer(); }
-function onPointerDown(e){ dragging=true; movePlayerToClientPoint(e.clientX,e.clientY); e.preventDefault(); }
+function onPointerDown(e){ 
+  // allow tap to continue level-up overlay
+  if (state.waitingLevelUp && $("#levelOverlay").style.display==="flex") {
+    continueToNextLevel();
+    e.preventDefault(); 
+    return;
+  }
+  dragging=true; movePlayerToClientPoint(e.clientX,e.clientY); e.preventDefault(); 
+}
 function onPointerMove(e){ if(!dragging) return; movePlayerToClientPoint(e.clientX,e.clientY); e.preventDefault(); }
 function onPointerUp(e){ dragging=false; e.preventDefault(); }
 canvas.addEventListener("pointerdown", onPointerDown, {passive:false});
@@ -451,6 +471,7 @@ function toast(msg){
 function resetAll(){
   state.level=1; state.score=0; state.lives=3; state.hits=0;
   state.slowUntil=0; state.bootsUntil=0; state.slowAllUntil=0; state.shieldHits=0;
+  state.waitingLevelUp=false; state.celebratingUntil=0;
   player.reset();
   state.invincibleUntil=Date.now()+1000;
   makeLevel(state.level); updateHud();
@@ -462,14 +483,35 @@ function nextLevel(){
   updateHud();
   playYehaThenBg(); // 🔊 YEHA at the start of EVERY level
 }
+function showLevelOverlay(){
+  const ov = $("#levelOverlay");
+  const msg = $("#levelMsg");
+  msg.innerHTML = `<b>¡Nivel ${state.level} completado! 🎉</b><br>Se viene el <b>nivel ${state.nextLevelNumber}</b>.<br><br><i>Toca para continuar</i>`;
+  ov.style.display="flex";
+}
+function hideLevelOverlay(){ $("#levelOverlay").style.display="none"; }
+function continueToNextLevel(){
+  hideLevelOverlay();
+  // advance and start next
+  state.level = state.nextLevelNumber;
+  state.waitingLevelUp = false;
+  state.paused = false;
+  nextLevel();
+}
 function win(){
-  // score + huge fiesta
+  // score + fiesta, then celebrate ~1.8s, then pause + overlay
   state.score+=100*state.level;
   toast("¡Ya chingué! 🥳");
   confettiBurst(player.x, player.y-20, 220);
   emojiRain(120);
-  state.level++;
-  nextLevel();
+
+  // prepare next level, but do NOT start yet
+  state.nextLevelNumber = state.level + 1;
+
+  // enter celebration mode (invincible & ignore hazards, but keep animating)
+  state.waitingLevelUp = true;
+  state.celebratingUntil = Date.now() + 1800; // ~1.8s fiesta
+  state.invincibleUntil = state.celebratingUntil + 500; // extra buffer
 }
 function doHit(){
   if(state.shieldHits>0){ // taco shield
@@ -491,6 +533,16 @@ function doHit(){
 
 function update(dt){
   const slowAll = Date.now() < state.slowAllUntil ? 0.6 : 1.0;
+
+  /* While celebrating, just let particles/effects run; skip hazards and input side effects */
+  if (state.waitingLevelUp){
+    // After fiesta ends, pause and show overlay once
+    if (Date.now() >= state.celebratingUntil && !state.paused){
+      state.paused = true; // pause the game world
+      showLevelOverlay();  // explicit “tap to continue”
+    }
+    return; // skip the rest of game logic during celebration
+  }
 
   // guards move (varied behaviors)
   for(const o of state.obstacles){
@@ -549,9 +601,14 @@ function update(dt){
 /* ===== loop ===== */
 let prev=0;
 function loop(ts){
-  if(!state.running || state.paused){ prev=ts; requestAnimationFrame(loop); return; }
+  if(!state.running || (state.paused && !state.waitingLevelUp)){ prev=ts; requestAnimationFrame(loop); return; }
   const dt=(ts-prev)/1000; prev=ts;
-  handleKeys(dt); update(dt);
+
+  // During celebration we still want particles and rendering, but we skip update() hazards
+  if (!state.waitingLevelUp){
+    handleKeys(dt);
+  }
+  update(dt);
 
   ctx.clearRect(0,0,W,H);
   drawTricolor();
@@ -568,16 +625,26 @@ function loop(ts){
 
 /* ===== buttons ===== */
 $("#btnPause").addEventListener("click", ()=>{
+  // If overlay is up (waitingLevelUp), interpret pause as continue
+  if (state.waitingLevelUp && $("#levelOverlay").style.display==="flex"){
+    continueToNextLevel();
+    return;
+  }
   if(!state.running) return;
   state.paused=!state.paused; toast(state.paused? "Pausado":"Reanudado");
   if(state.paused){ try{ A.bg.pause(); }catch{}; } else { playBg(); }
 });
 $("#btnReset").addEventListener("click", ()=>{
+  hideLevelOverlay();
+  state.waitingLevelUp=false;
   resetAll(); state.timeStart=Date.now(); state.running=true; state.paused=false;
   playYehaThenBg(); // YEHA at start of level 1
   fitCanvas();
 });
 $("#btnAudio").addEventListener("click", ()=>{}); // already wired to toggleMute above
+
+/* Also allow tapping the overlay itself */
+$("#levelOverlay").addEventListener("pointerdown", (e)=>{ continueToNextLevel(); e.preventDefault(); }, {passive:false});
 
 /* ===== auto-start on load (no “Iniciar”) ===== */
 function startGameNow(){
