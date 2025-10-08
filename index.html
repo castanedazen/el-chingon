@@ -127,6 +127,8 @@ const DROP_SCALE   = 1.6; // bigger power-ups
 /* Safe zones (no guards): top goal & bottom start) */
 const SAFE_GOAL  = 70;   // pixels from top
 const SAFE_START = 120;  // pixels from bottom (clean start lane)
+/* Win threshold slightly below clamp so you can actually enter the band */
+const GOAL_WIN_Y = SAFE_GOAL + 22; // <-- crossing this triggers victory
 
 /* ===== state ===== */
 const state={
@@ -150,8 +152,10 @@ function playerNopalPad(){ return 18 * (player.size/BASE_PLAYER); }
 function clampPlayer(){
   const padX=22*(player.size/BASE_PLAYER);
   const bottom = SAFE_START*0.6;
+  // allow the player to creep *into* the goal band so win can trigger
+  const minY = Math.max(0, SAFE_GOAL - 6);
   player.x=clamp(player.x,padX,W-padX);
-  player.y=clamp(player.y,SAFE_GOAL+20,H-bottom);
+  player.y=clamp(player.y,minY,H-bottom);
 }
 
 /* ===== sprites ===== */
@@ -180,24 +184,16 @@ function playBg(){ A.bg.currentTime=0; const p=A.bg.play(); if(p&&p.catch)p.catc
 function primeAudio(el){
   try{ const v=el.volume; el.volume=0; const p=el.play(); if(p&&p.then){ p.then(()=>{ el.pause(); el.currentTime=0; el.volume=v; }).catch(()=>{ el.volume=v; }); } }catch{}
 }
-function primeAll(){
-  primeAudio(A.yeha); primeAudio(A.bg); primeAudio(A.lose);
-  window.removeEventListener('pointerdown', primeAllOnce, {passive:false});
-}
+function primeAll(){ primeAudio(A.yeha); primeAudio(A.bg); primeAudio(A.lose); window.removeEventListener('pointerdown', primeAllOnce, {passive:false}); }
 function primeAllOnce(){ primeAll(); }
 window.addEventListener('pointerdown', primeAllOnce, {passive:false, once:true});
 
 function playYehaThenBg(){
-  // Always lead each level with the YEHA, then resume BG
   try{ A.bg.pause(); }catch{}
   A.yeha.currentTime = 0;
   const p = A.yeha.play();
-  if (p && p.then) {
-    p.then(()=>{ A.yeha.onended = ()=> playBg(); });
-    p.catch(()=> playBg());
-  } else {
-    playBg();
-  }
+  if (p && p.then) { p.then(()=>{ A.yeha.onended = ()=> playBg(); }).catch(()=> playBg()); }
+  else { playBg(); }
 }
 function playLose_thenResume(){
   try{ A.bg.pause(); }catch{}; try{ A.yeha.pause(); }catch{};
@@ -224,18 +220,18 @@ function guardSpeedFactor(n){ return Math.min(2.0, Math.pow(1.07, n-1)); }
 
 /* ===== particles & emoji rain ===== */
 const particles=[]; // {x,y,vx,vy,g,life,color,txt?}
-function confettiBurst(x,y,n=80){
+function confettiBurst(x,y,n=160){ // bigger default
   for(let i=0;i<n;i++){
-    particles.push({x,y,vx:rand(-220,220),vy:rand(-360,-120),g:520,life:1,color:`hsl(${Math.floor(rand(0,360))},85%,60%)`});
+    particles.push({x,y,vx:rand(-260,260),vy:rand(-420,-160),g:620,life:1.2,color:`hsl(${Math.floor(rand(0,360))},85%,60%)`});
   }
 }
-const fiestaEmojis=["🎉","🎊","🌮","🌯","🥑","🎺","🪗","🪅","🇲🇽","🫔","🥳","💃","🕺","🪇","🤠","🦅","🫓","🤟","🔥","🍻","😎","🎰","👒","🥁"];
-function emojiRain(n=40){
+const fiestaEmojis=["🎉","🎊","🌮","🌯","🥑","🎺","🪗","🪅","🇲🇽","🫔","🥳","💃","🕺","🪇","🤠","🦅","🫓","🤟","🔥","🍻","😎","🎰","👒","🥁","🌶️","🎆","🎇","🪙","🎟️","🎵"];
+function emojiRain(n=90){
   for(let i=0;i<n;i++){
     particles.push({
-      x:rand(40,W-40), y:-rand(0,200),
-      vx:rand(-40,40), vy:rand(120,220), g:60,
-      life:1.5, color:"#000", txt: fiestaEmojis[Math.floor(Math.random()*fiestaEmojis.length)]
+      x:rand(30,W-30), y:-rand(0,240),
+      vx:rand(-60,60), vy:rand(140,260), g:80,
+      life:1.8, color:"#000", txt: fiestaEmojis[Math.floor(Math.random()*fiestaEmojis.length)]
     });
   }
 }
@@ -460,21 +456,20 @@ function resetAll(){
   makeLevel(state.level); updateHud();
 }
 function nextLevel(){
-  // called after win() increments level, and also when continuing the run
   player.reset();
   state.invincibleUntil=Date.now()+1000;
   makeLevel(state.level);
   updateHud();
-  // 🔊 YEHA at the start of EVERY level:
-  playYehaThenBg();
+  playYehaThenBg(); // 🔊 YEHA at the start of EVERY level
 }
 function win(){
+  // score + huge fiesta
   state.score+=100*state.level;
   toast("¡Ya chingué! 🥳");
-  confettiBurst(player.x, player.y-20, 140);
-  emojiRain(70);
+  confettiBurst(player.x, player.y-20, 220);
+  emojiRain(120);
   state.level++;
-  nextLevel(); // this will also play YEHA
+  nextLevel();
 }
 function doHit(){
   if(state.shieldHits>0){ // taco shield
@@ -518,7 +513,7 @@ function update(dt){
     if(s<0 && o.x<-o.w-10) o.x=W+10;
   }
 
-  // plant slow unless boots active
+  // nopal slow unless boots active
   let onNopal=false;
   for(const n of state.nopales){
     const dx=player.x-n.x, dy=player.y-n.y;
@@ -526,7 +521,7 @@ function update(dt){
   }
   if(onNopal && Date.now()>state.bootsUntil) state.slowUntil=Date.now()+900;
 
-  // collision with guards (respect brief invincibility)
+  // collisions
   if(Date.now()>state.invincibleUntil){
     const hb=playerHitbox();
     for(const o of state.obstacles){
@@ -547,8 +542,8 @@ function update(dt){
     }
   }
 
-  // reached goal band
-  if(player.y<SAFE_GOAL){ win(); }
+  // ✅ win when you enter the goal band
+  if(player.y < GOAL_WIN_Y){ win(); }
 }
 
 /* ===== loop ===== */
@@ -579,8 +574,7 @@ $("#btnPause").addEventListener("click", ()=>{
 });
 $("#btnReset").addEventListener("click", ()=>{
   resetAll(); state.timeStart=Date.now(); state.running=true; state.paused=false;
-  // 🔊 YEHA at the start of level 1 when resetting:
-  playYehaThenBg();
+  playYehaThenBg(); // YEHA at start of level 1
   fitCanvas();
 });
 $("#btnAudio").addEventListener("click", ()=>{}); // already wired to toggleMute above
@@ -590,7 +584,7 @@ function startGameNow(){
   resetAll();
   state.timeStart=Date.now();
   state.running=true; state.paused=false;
-  playYehaThenBg();   // 🔊 YEHA for the very first level
+  playYehaThenBg();   // YEHA for the very first level
   fitCanvas();
 }
 window.addEventListener('load', startGameNow);
