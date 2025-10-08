@@ -35,11 +35,12 @@ canvas { touch-action: none; }
 /* Mobile layout */
 @media (max-width: 900px){
   .grid{display:flex;flex-direction:column;gap:10px}
+  /* keep 4:3, let JS set exact size; use dynamic viewport height to avoid iOS toolbar crop */
   canvas{
     width:100%;
-    height:82svh;
-    max-height:calc(100svh - 160px);
-    aspect-ratio:auto;
+    height:auto;
+    aspect-ratio:4 / 3;
+    max-height:calc(100dvh - 220px); /* header + buttons + HUD */
   }
   .btn{font-size:14px;padding:6px 10px;border-radius:10px;box-shadow:3px 4px 0 var(--negro)}
   .status{gap:6px}
@@ -126,6 +127,27 @@ canvas.style.width = LOGICAL_W+"px"; canvas.style.height = LOGICAL_H+"px";
 ctx.scale(DPR,DPR);
 const W=LOGICAL_W, H=LOGICAL_H;
 
+/* ===== responsive fit for phones (prevents half-screen on iOS) ===== */
+function fitCanvas(){
+  const parent = canvas.parentElement;
+  const cw = parent ? parent.clientWidth : document.documentElement.clientWidth;
+  const headerH = document.querySelector('header')?.getBoundingClientRect().height || 0;
+  const hudH    = document.querySelector('.status')?.getBoundingClientRect().height || 0;
+  const pad     = 24;
+
+  const availH  = Math.max(240, window.innerHeight - headerH - hudH - pad);
+  // keep 4:3
+  let targetW = cw;
+  let targetH = targetW * 3/4;
+  if (targetH > availH) { targetH = availH; targetW = targetH * 4/3; }
+
+  canvas.style.width  = targetW + 'px';
+  canvas.style.height = targetH + 'px';
+}
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('orientationchange', fitCanvas);
+document.addEventListener('DOMContentLoaded', fitCanvas);
+
 /* prevent iOS zoom glitches */
 ['gesturestart','gesturechange','gestureend'].forEach(evt =>
   document.addEventListener(evt, e => e.preventDefault(), { passive:false })
@@ -161,8 +183,8 @@ function clampPlayer(){ const padX=22*(player.size/BASE_PLAYER), padBottom=24*(p
 /* ===== sprites ===== */
 (function loadPlayer(){
   const img=new Image();
-  img.onload=()=>{ player.img=img; player.ready=true; $("#imgOverlay").style.display="none"; };
-  img.onerror=()=>{ player.ready=false; $("#imgOverlay").style.display="flex"; };
+  img.onload=()=>{ player.img=img; player.ready=true; $("#imgOverlay").style.display="none"; fitCanvas(); };
+  img.onerror=()=>{ player.ready=false; $("#imgOverlay").style.display="flex"; fitCanvas(); };
   img.src="player.png";
 })();
 const ENEMIES = { imgs:[], ready:false };
@@ -361,7 +383,7 @@ function drawDrop(d){
                d.type==="pulque" ? "🍶" : "⭐";
   ctx.fillStyle=d.color; ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,2*Math.PI); ctx.fill();
   ctx.strokeStyle="#111"; ctx.lineWidth=2; ctx.stroke();
-  ctx.fillStyle="#111"; ctx.font="bold 18px system-ui"; ctx.fillText(icon, d.x-9, d.y+6); // larger emoji label
+  ctx.fillStyle="#111"; ctx.font="bold 18px system-ui"; ctx.fillText(icon, d.x-9, d.y+6);
 }
 
 /* ===== collisions ===== */
@@ -552,6 +574,7 @@ $("#btnStart").addEventListener("click", ()=>{
     primeAudio(A.lose);
 
     playYehaThenBg();
+    fitCanvas(); // ensure perfect size right after starting on phones
   }
 });
 $("#btnPause").addEventListener("click", ()=>{
@@ -562,6 +585,7 @@ $("#btnPause").addEventListener("click", ()=>{
 $("#btnReset").addEventListener("click", ()=>{
   resetAll(); state.timeStart=Date.now(); state.running=true; state.paused=false;
   playBg();
+  fitCanvas();
 });
 $("#btnExport").addEventListener("click", ()=>{
   const arr=JSON.parse(localStorage.getItem("cruzando_hist")||"[]");
@@ -572,7 +596,7 @@ $("#btnPrint").addEventListener("click", ()=>window.print());
 $("#btnClear").addEventListener("click", ()=>{ if(confirm("¿Borrar historial guardado?")){ localStorage.removeItem("cruzando_hist"); loadTable(); }});
 
 /* init */
-resetAll(); loadTable(); requestAnimationFrame(loop);
+resetAll(); loadTable(); requestAnimationFrame(loop); fitCanvas();
 </script>
 </body>
 </html>
