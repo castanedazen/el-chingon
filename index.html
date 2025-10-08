@@ -77,8 +77,6 @@ canvas { touch-action: none; }
   </div>
 
   <div class="col">
-    <!-- CONTROLS REMOVED PER REQUEST -->
-
     <div class="hist">
       <b>Historial</b>
       <div style="display:flex;gap:6px;margin:.4rem 0">
@@ -131,8 +129,8 @@ document.addEventListener('touchend', e => {
 const canvas=$("#game"), ctx=canvas.getContext("2d");
 const W=canvas.width, H=canvas.height;
 
-/* global scale: +15% sizes */
-const SCALE = 1.15;
+/* global scale: +23% sizes */
+const SCALE = 1.23;
 
 const state={
   running:false, paused:false,
@@ -143,13 +141,13 @@ const state={
   invincibleUntil: 0
 };
 
-/* base player size 28 → scaled */
+/* base player size 28 → scaled by 1.23 */
 const BASE_PLAYER = 28;
 const player={ x:W/2, y:H-60, size:Math.round(BASE_PLAYER*SCALE), speed:6, img:null, ready:false,
   reset(){ this.x=W/2; this.y=H-60; }
 };
 
-/* dynamic hitbox helpers relative to size (keeps visuals+collisions aligned) */
+/* dynamic hitbox helpers relative to size */
 function playerHitbox(){
   const s = player.size/BASE_PLAYER;
   const hw = 18*s, hhOff = 22*s, w = 36*s, h = 44*s;
@@ -207,8 +205,8 @@ function stopAll(){ [A.yeha,A.bg,A.lose].forEach(a=>{ try{ a.pause(); a.currentT
 function toggleMute(){ A.muted = !A.muted; [A.yeha,A.bg,A.lose].forEach(a=> a.muted = A.muted); }
 
 /* ===== world/levels =====
-   Easier curve: ~+8% speed/level (softer than before), caps reduced.
-   Characters bigger: obstacle sizes & pickups scaled by 1.15.
+   Easier curve: ~+8% speed/level (softer), caps reduced.
+   Characters bigger: obstacle sizes & pickups scale with SCALE.
 */
 function makeLevel(n){
   state.obstacles.length=0; state.nopales.length=0; state.drops.length=0;
@@ -238,7 +236,7 @@ function makeLevel(n){
       state.obstacles.push({
         x, y,
         v: dir * rand(minV, maxV),
-        w: Math.round(56*SCALE), h: Math.round(54*SCALE), // 15% bigger
+        w: Math.round(56*SCALE), h: Math.round(54*SCALE), // 23% bigger
         tie: (i%2? "#e11d48" : "#2563eb"),
         spriteIndex
       });
@@ -250,13 +248,14 @@ function makeLevel(n){
     state.nopales.push({ x:rand(30,W-80), y:rand(220,H-160), r:rand(22,36)*SCALE }); // bigger nopales
   }
 
-  /* Drops (15% bigger radius) with weighted huaraches */
+  /* Drops (+23% radius) with weighted huaraches */
   const poolWeighted = [
     {type:"torta",     color:"#f97316"},
     {type:"pulque",    color:"#60a5fa"},
     {type:"huaraches", color:"#f59e0b"},
     {type:"huaraches", color:"#f59e0b"}
   ];
+  const dropR = Math.round(14*SCALE); // base 14 → ~17
   const count = 2 + Math.floor(Math.random()*2); // 2–3
   let hasHuaraches = false;
   for(let i=0;i<count;i++){
@@ -266,12 +265,12 @@ function makeLevel(n){
       type:d.type,
       x:rand(30,W-30),
       y:rand(140,H-200),
-      r:16, // base 14 → ~16 (≈+15%)
+      r:dropR,
       color:d.color
     });
   }
   if(!hasHuaraches){
-    state.drops.push({type:"huaraches", x:rand(30,W-30), y:rand(140,H-200), r:16, color:"#f59e0b"});
+    state.drops.push({type:"huaraches", x:rand(30,W-30), y:rand(140,H-200), r:dropR, color:"#f59e0b"});
   }
 }
 
