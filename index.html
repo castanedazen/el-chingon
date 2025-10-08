@@ -151,7 +151,6 @@ const player={ x:W/2, y:H-60, size:Math.round(BASE_PLAYER*SCALE), speed:6, img:n
 
 /* dynamic hitbox helpers relative to size (keeps visuals+collisions aligned) */
 function playerHitbox(){
-  // original was x-18,y-22,36x44 at size 28
   const s = player.size/BASE_PLAYER;
   const hw = 18*s, hhOff = 22*s, w = 36*s, h = 44*s;
   return { x: player.x - hw, y: player.y - hhOff, w, h };
@@ -208,8 +207,8 @@ function stopAll(){ [A.yeha,A.bg,A.lose].forEach(a=>{ try{ a.pause(); a.currentT
 function toggleMute(){ A.muted = !A.muted; [A.yeha,A.bg,A.lose].forEach(a=> a.muted = A.muted); }
 
 /* ===== world/levels =====
-   Easier curve: ~+8% speed/level (was ~15%), softer caps.
-   Characters bigger: obstacle sizes scaled by 1.15.
+   Easier curve: ~+8% speed/level (softer than before), caps reduced.
+   Characters bigger: obstacle sizes & pickups scaled by 1.15.
 */
 function makeLevel(n){
   state.obstacles.length=0; state.nopales.length=0; state.drops.length=0;
@@ -267,7 +266,7 @@ function makeLevel(n){
       type:d.type,
       x:rand(30,W-30),
       y:rand(140,H-200),
-      r:16*SCALE/1.15, // base ~14 → ~16.1 (clean round)
+      r:16, // base 14 → ~16 (≈+15%)
       color:d.color
     });
   }
@@ -285,7 +284,6 @@ function drawTricolor(){
   ctx.save(); ctx.globalAlpha=.18; ctx.fillStyle="#000"; ctx.fillRect(0,0,W,60); ctx.restore();
   ctx.strokeStyle="#111"; ctx.strokeRect(0,0,W,60);
   ctx.fillStyle="#111"; ctx.font="bold 16px system-ui";
-  // renamed label
   const label = "La Frontera";
   const tw = ctx.measureText(label).width;
   ctx.fillText(label, (W - tw)/2, 36);
