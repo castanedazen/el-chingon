@@ -27,7 +27,7 @@ padding:.6rem 1rem;border-radius:16px;box-shadow:6px 8px 0 var(--negro)}
 .overlay > div{background:#fff;border:3px dashed var(--rojo);border-radius:14px;padding:12px;max-width:560px}
 details summary{cursor:pointer}
 
-/* --- NEW: stop accidental zoom/pan on mobile while playing --- */
+/* --- stop accidental zoom/pan on mobile while playing --- */
 html, body { touch-action: none; overscroll-behavior: none; }
 button, .btn { touch-action: manipulation; }
 canvas { touch-action: none; }
@@ -35,11 +35,10 @@ canvas { touch-action: none; }
 /* ===== Mobile-only layout so the game fills most of the phone ===== */
 @media (max-width: 900px){
   .grid{display:flex;flex-direction:column;gap:10px}
-  /* Bigger game area on phones */
   canvas{
     width:100%;
-    height:82svh;                  /* larger playfield */
-    max-height:calc(100svh - 160px); /* leave room for header/status */
+    height:82svh;
+    max-height:calc(100svh - 160px);
     aspect-ratio:auto;
   }
   .btn{font-size:14px;padding:6px 10px;border-radius:10px;box-shadow:3px 4px 0 var(--negro)}
@@ -98,7 +97,7 @@ canvas { touch-action: none; }
       <summary><b>GitHub Pages</b></summary>
       <ol>
         <li>Guarda este archivo como <code>index.html</code>.</li>
-        <li>Pon en la misma carpeta: <code>player.png</code>, <code>yeha.mp3</code>, <code>cielito_lindo.mp3</code>, <code>frijoles.mp3</code>.</li>
+        <li>Pon en la misma carpeta: <code>player.png</code>, <code>ice1.png</code> … <code>ice5.png</code>, <code>yeha.mp3</code>, <code>cielito_lindo.mp3</code>, <code>frijoles.mp3</code>.</li>
         <li>Sube al repo → Settings → Pages → Source: “main / root”.</li>
         <li>Abre la URL de Pages y presiona <b>Iniciar</b>.</li>
       </ol>
@@ -118,7 +117,7 @@ const $ = s=>document.querySelector(s);
 const rand=(a,b)=>Math.random()*(b-a)+a;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
-/* --- NEW: block iOS pinch & double-tap zoom --- */
+/* block iOS pinch & double-tap zoom */
 ['gesturestart','gesturechange','gestureend'].forEach(evt =>
   document.addEventListener(evt, e => e.preventDefault(), { passive:false })
 );
@@ -139,7 +138,6 @@ const state={
   timeStart:0,
   slowUntil:0, bootsUntil:0,
   obstacles:[], nopales:[], drops:[],
-  /* brief invincibility window after start/level/hit */
   invincibleUntil: 0
 };
 
@@ -147,15 +145,27 @@ const player={ x:W/2, y:H-60, size:28, speed:6, img:null, ready:false,
   reset(){ this.x=W/2; this.y=H-60; }
 };
 
-/* ========== sprite del jugador: siempre la imagen ========== */
-(function loadSprite(){
+/* ===== Sprites: player + ICE enemies (ice1..ice5) ===== */
+(function loadPlayer(){
   const img=new Image();
   img.onload=()=>{ player.img=img; player.ready=true; $("#imgOverlay").style.display="none"; };
   img.onerror=()=>{ player.ready=false; $("#imgOverlay").style.display="flex"; };
   img.src="player.png";
 })();
 
-/* ========== audio control (yeha / cielito_lindo / frijoles) ========== */
+const ENEMIES = { imgs:[], ready:false };
+(function loadEnemies(){
+  const names = ["ice1.png","ice2.png","ice3.png","ice4.png","ice5.png"];
+  let loaded = 0;
+  names.forEach((name,i)=>{
+    const img = new Image();
+    img.onload = ()=>{ ENEMIES.imgs[i]=img; loaded++; ENEMIES.ready = loaded>0; };
+    img.onerror= ()=>{ ENEMIES.imgs[i]=null; ENEMIES.ready = ENEMIES.imgs.some(Boolean); };
+    img.src = name;
+  });
+})();
+
+/* ========== audio control ========== */
 const A = {
   yeha: $("#sYeha"),
   bg: $("#sBg"),
@@ -170,7 +180,7 @@ function playYehaThenBg(){
 }
 function playBg(){
   A.bg.currentTime = 0;
-  A.bg.play().catch(()=>{ /* ignore autoplay errors */ });
+  A.bg.play().catch(()=>{});
 }
 function playLose_thenResume(){
   try{ A.bg.pause(); }catch{}
@@ -185,29 +195,39 @@ function toggleMute(){
 }
 
 /* ========== mundo ========== */
-/* cap growth + even spacing to avoid clumps */
+/* Playable progression:
+   - Lanes: 4 → 6 max
+   - Per-lane enemies: 3 → 5 max
+   - Speed grows ~+15% per level multiplicatively, but clamped */
 function makeLevel(n){
   state.obstacles.length=0; state.nopales.length=0; state.drops.length=0;
 
-  const lanes  = Math.min(6, 4 + Math.floor((n-1)/2));  // 4..6
-  const perLane= Math.min(5, 3 + Math.floor((n-1)/2));  // 3..5
+  const lanes   = Math.min(6, 4 + Math.floor((n-1)/2));   // 4..6
+  const perLane = Math.min(5, 3 + Math.floor((n-1)/2));   // 3..5
+  const speedFactor = Math.min(3.2, Math.pow(1.15, n-1)); // ~+15%/lvl, capped
 
   for(let i=0;i<lanes;i++){
-    const y = 120 + i*60;
+    const y   = 120 + i*60;
     const dir = (i%2? 1 : -1);
-    const base = 1.0 + n*0.15;
-    const minV = Math.min(2.2, base*0.8);
-    const maxV = Math.min(2.6, base*1.2);
+    const minV = 1.1 * speedFactor;
+    const maxV = 1.5 * speedFactor;
 
     const segment = W / perLane;
     for(let k=0;k<perLane;k++){
       const jitter = segment*0.35*(Math.random()-0.5);
       const x = k*segment + segment/2 + jitter;
+      // choose a sprite index among loaded ones
+      let spriteIndex = -1;
+      if (ENEMIES.ready){
+        const candidates = ENEMIES.imgs.map((im,idx)=>im?idx:-1).filter(v=>v>=0);
+        spriteIndex = candidates[Math.floor(Math.random()*candidates.length)];
+      }
       state.obstacles.push({
         x, y,
         v: dir * rand(minV, maxV),
         w:56, h:54,
-        tie: (i%2? "#e11d48" : "#2563eb")
+        tie: (i%2? "#e11d48" : "#2563eb"), // for fallback vector
+        spriteIndex
       });
     }
   }
@@ -217,16 +237,18 @@ function makeLevel(n){
     state.nopales.push({ x:rand(30,W-80), y:rand(220,H-160), r:rand(22,36) });
   }
 
-  /* --- NEW DROPS: torta, huaraches, pulque --- */
-  const pool = [
-    {type:"torta",     color:"#f97316"},  // naranja
-    {type:"huaraches", color:"#f59e0b"},  // ámbar
-    {type:"pulque",    color:"#60a5fa"}   // azul claro
+  /* Drops: weighted to show MORE huaraches + guaranteed one */
+  const poolWeighted = [
+    {type:"torta",     color:"#f97316"},  // 1x
+    {type:"pulque",    color:"#60a5fa"},  // 1x
+    {type:"huaraches", color:"#f59e0b"},  // 2x weight
+    {type:"huaraches", color:"#f59e0b"}
   ];
-  // genera 2–3 objetos por nivel, posiciones aleatorias
-  const count = 2 + Math.floor(Math.random()*2);
+  const count = 2 + Math.floor(Math.random()*2); // 2–3 drops
+  let hasHuaraches = false;
   for(let i=0;i<count;i++){
-    const d = pool[Math.floor(Math.random()*pool.length)];
+    const d = poolWeighted[Math.floor(Math.random()*poolWeighted.length)];
+    if(d.type==="huaraches") hasHuaraches = true;
     state.drops.push({
       type:d.type,
       x:rand(30,W-30),
@@ -234,6 +256,9 @@ function makeLevel(n){
       r:14,
       color:d.color
     });
+  }
+  if(!hasHuaraches){
+    state.drops.push({type:"huaraches", x:rand(30,W-30), y:rand(140,H-200), r:14, color:"#f59e0b"});
   }
 }
 
@@ -255,8 +280,15 @@ function drawPlayer(){
   const h=size*2.8, w=h*0.9;
   ctx.drawImage(player.img, x-w/2, y-h/1.7, w, h);
 }
+/* Draw ICE enemy: pick per-obstacle sprite when available, else fallback vector */
 function drawGuard(o){
   const x=o.x, y=o.y, w=o.w, h=o.h;
+  const idx = o.spriteIndex;
+  if (ENEMIES.ready && idx>=0 && ENEMIES.imgs[idx]){
+    ctx.drawImage(ENEMIES.imgs[idx], x, y-h*0.15, w, h*1.15); // slight headroom
+    return;
+  }
+  // fallback vector drawing
   ctx.fillStyle="#111"; ctx.fillRect(x, y, w, h);
   ctx.fillStyle="#333"; ctx.fillRect(x+4, y+8, w-8, 10);
   ctx.fillStyle="#fff"; ctx.fillRect(x+10, y+18, w-20, 14);
@@ -284,7 +316,6 @@ function drawNopal(n){
   for(let i=0;i<8;i++){ const a=i*Math.PI/4; ctx.beginPath(); ctx.arc(n.x+Math.cos(a)*(n.r-6), n.y+Math.sin(a)*(n.r-6), 2.5, 0, 2*Math.PI); ctx.fill(); }
 }
 function drawDrop(d){
-  // iconos por tipo
   const icon = d.type==="torta" ? "🥪" :
                d.type==="huaraches" ? "👡" :
                d.type==="pulque" ? "🍶" : "⭐";
@@ -298,7 +329,7 @@ function resetAll(){
   state.level=1; state.score=0; state.lives=3; state.hits=0;
   state.slowUntil=0; state.bootsUntil=0;
   player.reset(); 
-  state.invincibleUntil = Date.now() + 1000; // grace at game start
+  state.invincibleUntil = Date.now() + 1000;
   makeLevel(state.level); updateHud();
 }
 
@@ -316,14 +347,12 @@ function update(dt){
   }
   if(onNopal && Date.now()>state.bootsUntil){ state.slowUntil=Date.now()+900; }
 
-  // ignore collisions while invincible
   if (Date.now() > state.invincibleUntil) {
     for(const o of state.obstacles){
       if(rectHit(player.x-18,player.y-22,36,44, o.x,o.y,o.w,o.h)){ hit(); break; }
     }
   }
 
-  // recoger objetos
   for(let i=state.drops.length-1;i>=0;i--){
     const d=state.drops[i];
     if(circleHit(player.x,player.y,20, d.x,d.y,d.r)){
@@ -349,7 +378,7 @@ function update(dt){
 function nextLevel(){ 
   saveSnapshot(); 
   player.reset(); 
-  state.invincibleUntil = Date.now() + 1000; // grace after level up
+  state.invincibleUntil = Date.now() + 1000;
   makeLevel(state.level); 
   updateHud(); 
 }
@@ -359,7 +388,7 @@ function hit(){
   playLose_thenResume();
   if(state.lives<=0){ saveSnapshot(); state.running=false; updateHud(); return; }
   player.reset(); 
-  state.invincibleUntil = Date.now() + 900; // brief grace after a hit
+  state.invincibleUntil = Date.now() + 900;
   updateHud();
 }
 
@@ -367,7 +396,6 @@ function rectHit(ax,ay,aw,ah,bx,by,bw,bh){ return ax<bx+bw && ax+aw>bx && ay<by+
 function circleHit(ax,ay,ar,bx,by,br){ return Math.hypot(ax-bx,ay-by) < ar+br; }
 
 /* ========== input ========== */
-/* Keep keyboard (optional), remove on-screen buttons, ADD drag/touch on canvas */
 const keys=new Set();
 window.addEventListener("keydown",e=>{
   if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
