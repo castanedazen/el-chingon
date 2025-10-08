@@ -15,7 +15,7 @@ input[type=range]{width:150px}
 .stage{position:relative}
 canvas{width:100%;aspect-ratio:4/3;border:4px solid var(--negro);border-radius:16px;box-shadow:6px 8px 0 var(--negro);background:#fff;display:block}
 
-/* HUD over the canvas to save space */
+/* HUD over canvas */
 .hud{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
 .tag{background:#fff;border:2px solid var(--negro);padding:.18rem .45rem;border-radius:10px;font-weight:800;font-size:13px}
 
@@ -32,19 +32,14 @@ canvas { touch-action: none; }
 
 /* PHONE: maximize play area */
 @media (max-width: 900px){
-  .wrap{padding:8px}
+  .wrap{max-width:100%; padding:6px}
   header{gap:6px}
   .btn{font-size:14px;padding:.35rem .6rem;border-radius:10px;box-shadow:3px 4px 0 var(--negro)}
-  /* JS sets exact size; keep ratio and allow up to full viewport */
-  canvas{
-    width:100%;
-    height:auto;
-    aspect-ratio:4/3;
-    max-height:calc(100dvh - 150px); /* header + margin */
-  }
+  /* JS sets exact size; keep ratio */
+  canvas{ width:100%; height:auto; aspect-ratio:4/3; }
 }
 
-/* hide the old history/side bits completely */
+/* hide the old history/side bits completely if they exist */
 .grid, .col, .hist, details{ display:none !important; }
 </style>
 </head>
@@ -62,7 +57,7 @@ canvas { touch-action: none; }
   <div class="stage">
     <canvas id="game" width="800" height="600" aria-label="Juego Cruzando los Nopales"></canvas>
 
-    <!-- HUD floats on top of canvas -->
+    <!-- HUD -->
     <div class="hud">
       <span class="tag">Vidas: <b id="lives">3</b></span>
       <span class="tag">Puntos: <b id="score">0</b></span>
@@ -99,24 +94,36 @@ canvas.style.width = LOGICAL_W+"px"; canvas.style.height = LOGICAL_H+"px";
 ctx.scale(DPR,DPR);
 const W=LOGICAL_W, H=LOGICAL_H;
 
-/* Fit canvas to available space (max screen for phone) */
+/* Fit canvas to available space (~90% of screen on phones, keep 4:3) */
 function fitCanvas(){
   const stage = canvas.parentElement;
-  const cw = stage.clientWidth;
   const headerH = document.querySelector('header')?.getBoundingClientRect().height || 0;
   const titleH  = document.querySelector('h1')?.getBoundingClientRect().height || 0;
-  const pad = 20;
-  const availH = Math.max(260, window.innerHeight - headerH - titleH - pad);
-  let targetW = cw, targetH = targetW * 3/4;
-  if (targetH > availH) { targetH = availH; targetW = targetH * 4/3; }
-  canvas.style.width = targetW + 'px';
-  canvas.style.height = targetH + 'px';
+
+  // Visual viewport (iOS friendly)
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width  : window.innerWidth;
+  const vh = vv ? vv.height : window.innerHeight;
+
+  // Use ~90% of screen height, but not less than what remains under header/title
+  const pad = 8;
+  const targetAvailH = Math.max(260, Math.min(vh * 0.90, vh - headerH - titleH - pad));
+
+  // Stage width (container width)
+  const cw = stage.clientWidth;
+
+  // Largest 4:3 size that fits both width and target height
+  let targetW = Math.min(cw, targetAvailH * 4/3);
+  let targetH = targetW * 3/4;
+  if (targetH > targetAvailH) { targetH = targetAvailH; targetW = targetH * 4/3; }
+
+  canvas.style.width  = Math.round(targetW) + 'px';
+  canvas.style.height = Math.round(targetH) + 'px';
 }
-window.addEventListener('resize', fitCanvas);
-window.addEventListener('orientationchange', fitCanvas);
+['resize','orientationchange'].forEach(ev=>window.addEventListener(ev, fitCanvas));
 document.addEventListener('DOMContentLoaded', fitCanvas);
 
-/* prevent iOS zoom glitches */
+/* prevent iOS double-tap zoom */
 ['gesturestart','gesturechange','gestureend'].forEach(evt =>
   document.addEventListener(evt, e => e.preventDefault(), { passive:false })
 );
