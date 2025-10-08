@@ -1,53 +1,148 @@
-/* ===== Mobile sizing & controls (keep everything else the same) ===== */
-@media (max-width: 900px){
-  /* Stack columns: game first, then controls/history */
-  .grid{
-    display:flex;
-    flex-direction:column;
-    gap:10px;
-  }
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cruzando los Nopales</title>
+<style>
+  :root{ --rojo:#e11d48; --verde:#16a34a; --blanco:#ffffff; --negro:#111827; }
+  html,body{height:100%;margin:0;background:#fff;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--negro)}
+  .wrap{max-width:1100px;margin:0 auto;padding:12px}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between}
+  h1{margin:0;font-size:clamp(20px,3.5vw,34px);color:var(--rojo);text-shadow:0 2px 0 #fff}
+  .btn{cursor:pointer;border:2px solid var(--negro);border-radius:12px;padding:.45rem .8rem;font-weight:800;background:#fff;box-shadow:2px 3px 0 var(--negro)}
+  .grid{display:grid;grid-template-columns:1fr 320px;gap:12px}
+  canvas{width:100%;aspect-ratio:4/3;border:4px solid var(--negro);border-radius:16px;box-shadow:6px 8px 0 var(--negro);background:#fff}
+  .col{display:flex;flex-direction:column;gap:10px}
+  .kbd{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .kbd .btn{font-size:18px;padding:14px 10px}
+  .status{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .tag{border:2px solid var(--negro);background:#fff;padding:.25rem .5rem;border-radius:10px;font-weight:700}
+  .hist{background:#fff;border:2px solid var(--negro);border-radius:14px;padding:10px;max-height:340px;overflow:auto}
+  table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:6px 8px;font-size:12px;text-align:center}
+  th{background:#f3f4f6;position:sticky;top:0}
 
-  /* Make the game take most of the phone screen */
-  canvas{
-    width:100%;
-    height:72vh;                 /* ~72% of viewport height */
-    max-height:calc(100vh - 220px); /* leave room for header + controls */
-    aspect-ratio:auto;           /* let height control the size on phones */
+  /* ===== Mobile sizing ===== */
+  @media (max-width: 900px){
+    .grid{display:flex;flex-direction:column;gap:10px}
+    canvas{
+      width:100%;
+      height:72svh;        /* most of phone screen */
+      max-height:calc(100svh - 220px);
+      aspect-ratio:auto;
+    }
+    .btn{font-size:14px;padding:6px 10px;border-radius:10px}
+    .kbd .btn{font-size:16px;padding:10px}
+    .kbd{
+      position:fixed;
+      left:50%; transform:translateX(-50%);
+      bottom:max(8px, env(safe-area-inset-bottom));
+      grid-template-columns:repeat(3,64px);
+      gap:8px; padding:6px 8px;
+      background:rgba(255,255,255,.9);
+      border:2px solid var(--negro); border-radius:12px;
+      z-index:10;
+    }
+    body{padding-bottom:120px}
+    .status{gap:6px}
+    .tag{font-size:14px}
+    .hist{max-height:280px}
   }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🇲🇽 Cruzando los Nopales</h1>
+    <button id="toggleMusic" class="btn">Música: Encender/Apagar</button>
+  </header>
+  <div class="grid">
+    <canvas id="gameCanvas"></canvas>
+    <div class="col">
+      <div class="kbd">
+        <button class="btn" data-dir="up">⬆ Arriba</button>
+        <button class="btn" data-dir="left">⬅ Izquierda</button>
+        <button class="btn" data-dir="down">⬇ Abajo</button>
+        <button class="btn" data-dir="right">➡ Derecha</button>
+      </div>
+      <div class="status">
+        <span class="tag">Vidas: <span id="lives">3</span></span>
+        <span class="tag">Puntos: <span id="score">0</span></span>
+        <span class="tag">Nivel: <span id="level">1</span></span>
+      </div>
+    </div>
+  </div>
+</div>
 
-  /* Smaller buttons so they don't dominate */
-  .btn{
-    font-size:14px;
-    padding:6px 10px;
-    border-radius:10px;
-    box-shadow:3px 4px 0 var(--negro);
-  }
-  .kbd .btn{
-    font-size:16px;
-    padding:10px;
-  }
+<audio id="bgMusic" src="cielito_lindo.mp3" loop></audio>
 
-  /* Keep the D-pad compact and handy at bottom center (optional but nice) */
-  .kbd{
-    position:fixed;
-    left:50%;
-    transform:translateX(-50%);
-    bottom:max(8px, env(safe-area-inset-bottom));
-    grid-template-columns:repeat(3,64px);
-    gap:8px;
-    padding:6px 8px;
-    background:rgba(255,255,255,0.9);
-    border:2px solid var(--negro);
-    border-radius:12px;
-    box-shadow:4px 5px 0 var(--negro);
-    z-index:10;
-  }
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+canvas.width = 480;
+canvas.height = 360;
 
-  /* Make sure the fixed controls don't cover content when scrolling */
-  body{ padding-bottom:120px; }
+const playerImg = new Image();
+playerImg.src = "player.png";  // your caricature
 
-  /* Tighten misc spacing */
-  .status{ gap:6px; }
-  .tag{ font-size:14px; }
-  .hist{ max-height:280px; }
+const music = document.getElementById("bgMusic");
+document.getElementById("toggleMusic").onclick = () => {
+  if(music.paused){ music.play(); } else { music.pause(); }
+};
+
+let player = { x:200, y:300, w:50, h:70, speed:20 };
+let guards = [
+  {x:100,y:50,w:40,h:60},
+  {x:300,y:150,w:40,h:60}
+];
+
+function drawBackground(){
+  // flag stripes
+  ctx.fillStyle = "#16a34a"; ctx.fillRect(0,0,canvas.width,120);
+  ctx.fillStyle = "#fff"; ctx.fillRect(0,120,canvas.width,120);
+  ctx.fillStyle = "#e11d48"; ctx.fillRect(0,240,canvas.width,120);
+  // cactus
+  ctx.fillStyle="green";
+  ctx.fillRect(50,200,10,40);
+  ctx.fillRect(55,180,10,20);
 }
+
+function drawPlayer(){
+  ctx.drawImage(playerImg,player.x,player.y,player.w,player.h);
+}
+
+function drawGuards(){
+  ctx.fillStyle="black";
+  guards.forEach(g=>{
+    ctx.fillRect(g.x,g.y,g.w,g.h);
+    ctx.fillStyle="white";
+    ctx.font="10px Arial";
+    ctx.fillText("ICE co", g.x+2, g.y+30);
+    ctx.fillStyle="black";
+  });
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawBackground();
+  drawPlayer();
+  drawGuards();
+}
+
+function movePlayer(dir){
+  if(dir==="up") player.y -= player.speed;
+  if(dir==="down") player.y += player.speed;
+  if(dir==="left") player.x -= player.speed;
+  if(dir==="right") player.x += player.speed;
+  draw();
+  if(music.paused) music.play(); // start music on movement
+}
+
+document.querySelectorAll(".kbd .btn").forEach(b=>{
+  b.addEventListener("click",()=>movePlayer(b.dataset.dir));
+});
+
+draw();
+</script>
+</body>
+</html>
