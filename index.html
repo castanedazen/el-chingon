@@ -129,9 +129,9 @@ document.addEventListener('touchend', e => {
 const canvas=$("#game"), ctx=canvas.getContext("2d");
 const W=canvas.width, H=canvas.height;
 
-/* Appearance scales */
-const SCALE_PLAYER = 1.35; // +35% player
-const SCALE_GUARD  = 1.35; // +35% guards
+/* Appearance scales (50% bigger for player & guards) */
+const SCALE_PLAYER = 1.5; // +50% player
+const SCALE_GUARD  = 1.5; // +50% guards
 
 const state={
   running:false, paused:false,
@@ -238,7 +238,7 @@ function makeLevel(n){
       state.obstacles.push({
         x, y,
         v: dir * rand(minV, maxV),
-        w: Math.round(56*SCALE_GUARD), h: Math.round(54*SCALE_GUARD), // +35% guards
+        w: Math.round(56*SCALE_GUARD), h: Math.round(54*SCALE_GUARD), // +50% guards
         tie: (i%2? "#e11d48" : "#2563eb"),
         spriteIndex
       });
