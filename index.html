@@ -47,8 +47,7 @@
       <div class="toast" id="toast" style="display:none"><span></span></div>
       <div class="overlay" id="imgOverlay"><div>
         <b>Falta <code>player.png</code></b><br>
-        Coloca tu caricatura (este archivo adjunto) en la misma carpeta que <code>index.html</code> con el nombre exacto <code>player.png</code>. 
-        Sin eso, el jugador no aparecerá.
+        Coloca tu caricatura en la misma carpeta que <code>index.html</code> con el nombre exacto <code>player.png</code>.
       </div></div>
       <div class="status">
         <span class="tag">Vidas: <b id="lives">3</b></span>
@@ -86,16 +85,19 @@
         <summary><b>GitHub Pages</b></summary>
         <ol>
           <li>Guarda este archivo como <code>index.html</code>.</li>
-          <li>Coloca <code>player.png</code> (tu caricatura) y opcionalmente <code>mariachi.mp3</code> junto a <code>index.html</code>.</li>
+          <li>Pon en la misma carpeta: <code>player.png</code>, <code>yeha.mp3</code>, <code>cielito_lindo.mp3</code>, <code>frijoles.mp3</code>.</li>
           <li>Sube al repo → Settings → Pages → Source: “main / root”.</li>
-          <li>Abre la URL de Pages. Música inicia al presionar <b>Iniciar</b>.</li>
+          <li>Abre la URL de Pages y presiona <b>Iniciar</b>.</li>
         </ol>
       </details>
     </div>
   </div>
 </div>
 
-<audio id="bg" src="mariachi.mp3" preload="auto" loop></audio>
+<!-- audio files used by name -->
+<audio id="sYeha" src="yeha.mp3" preload="auto"></audio>
+<audio id="sBg" src="cielito_lindo.mp3" preload="auto" loop></audio>
+<audio id="sLose" src="frijoles.mp3" preload="auto"></audio>
 
 <script>
 /* ========== util ========== */
@@ -119,7 +121,7 @@ const player={ x:W/2, y:H-60, size:28, speed:6, img:null, ready:false,
   reset(){ this.x=W/2; this.y=H-60; }
 };
 
-/* ========== sprite del jugador: SIEMPRE la imagen ========== */
+/* ========== sprite del jugador: siempre la imagen ========== */
 (function loadSprite(){
   const img=new Image();
   img.onload=()=>{ player.img=img; player.ready=true; $("#imgOverlay").style.display="none"; };
@@ -127,48 +129,37 @@ const player={ x:W/2, y:H-60, size:28, speed:6, img:null, ready:false,
   img.src="player.png";
 })();
 
-/* ========== audio ========== */
-let ac, bgGain, loopId;
-const bgAudio = $("#bg");
-function audioInit(){
-  if(ac) return;
-  ac = new (window.AudioContext||window.webkitAudioContext)();
-  bgGain = ac.createGain(); bgGain.gain.value=0.10; bgGain.connect(ac.destination);
+/* ========== audio control (yeha / cielito_lindo / frijoles) ========== */
+const A = {
+  yeha: $("#sYeha"),
+  bg: $("#sBg"),
+  lose: $("#sLose"),
+  muted: false
+};
+function playYehaThenBg(){
+  stopAll();
+  // play start cue; then start bg
+  A.yeha.currentTime = 0;
+  A.yeha.play().then(()=> {
+    A.yeha.onended = ()=> playBg();
+  }).catch(()=> { playBg(); });
 }
-function startMusic(){
-  // try real mp3 first
-  const playTag = () => bgAudio.play().catch(()=>fallbackLoop());
-  if(bgAudio.readyState >= 2){ playTag(); }
-  else { bgAudio.addEventListener("canplay", playTag, {once:true}); }
+function playBg(){
+  A.bg.currentTime = 0;
+  A.bg.play().catch(()=>{ /* ignore autoplay errors */ });
 }
-function stopMusic(){ try{ bgAudio.pause(); }catch{}; if(loopId){ clearInterval(loopId); loopId=null; } }
-
-/* Fallback WebAudio loop (simple mariachi-ish 3/4: guitarra + trompeta) */
-function fallbackLoop(){
-  if(!ac || loopId) return;
-  const tempo=156, beat=60/tempo, meas=3;
-  let step=0;
-  loopId=setInterval(()=>{
-    // guitarra rasgueo
-    pluck(220*Math.pow(2,[0,7/12,4/12][step%meas]), .18, "triangle", .07);
-    // trompeta lead
-    if(step%3===0) blip(523.25, .12, "square", .08);
-    step=(step+1)%(meas*4);
-  }, beat*1000);
+function playLose_thenResume(){
+  // pause bg, play frijoles once, then resume if still alive
+  try{ A.bg.pause(); }catch{}
+  A.lose.currentTime = 0;
+  A.lose.play().then(()=>{
+    A.lose.onended = ()=>{ if(state.running && state.lives>0) playBg(); };
+  }).catch(()=>{ if(state.running && state.lives>0) playBg(); });
 }
-function pluck(freq, dur=0.2, type="triangle", gain=0.08){
-  const o=ac.createOscillator(), g=ac.createGain(); o.type=type; o.frequency.value=freq;
-  g.gain.value=gain; o.connect(g); g.connect(bgGain); o.start(); o.stop(ac.currentTime+dur);
-}
-function blip(freq, dur=0.12, type="square", gain=0.09){
-  const o=ac.createOscillator(), g=ac.createGain(); o.type=type; o.frequency.value=freq;
-  g.gain.value=gain; o.connect(g); g.connect(bgGain); o.start(); o.stop(ac.currentTime+dur);
-}
-
-/* Voz caricaturesca */
-function say(text){
-  const s=window.speechSynthesis; if(!s) return;
-  const u=new SpeechSynthesisUtterance(text); u.lang="es-MX"; u.pitch=2.0; u.rate=1.2; s.cancel(); s.speak(u);
+function stopAll(){ [A.yeha,A.bg,A.lose].forEach(a=>{ try{ a.pause(); a.currentTime=0; }catch{} }); }
+function toggleMute(){
+  A.muted = !A.muted;
+  [A.yeha,A.bg,A.lose].forEach(a=> a.muted = A.muted);
 }
 
 /* ========== mundo ========== */
@@ -223,9 +214,8 @@ function drawGuard(o){
   const x=o.x, y=o.y, w=o.w, h=o.h;
   // saco
   ctx.fillStyle="#111"; ctx.fillRect(x, y, w, h);
-  // solapas
+  // solapas y camisa
   ctx.fillStyle="#333"; ctx.fillRect(x+4, y+8, w-8, 10);
-  // camisa
   ctx.fillStyle="#fff"; ctx.fillRect(x+10, y+18, w-20, 14);
   // corbata
   ctx.fillStyle=o.tie; ctx.fillRect(x+w/2-3, y+18, 6, 26);
@@ -238,11 +228,18 @@ function drawGuard(o){
   ctx.fillRect(x+w/2-2, y-10, 4, 2);
   // radio
   ctx.fillStyle="#444"; ctx.fillRect(x+w-10, y+h-18, 8, 14); ctx.fillRect(x+w-6, y+h-24, 2, 6);
-  // espiral audífono
-  ctx.strokeStyle="#666"; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x+w/2+12, y-10); for(let i=0;i<6;i++){ ctx.lineTo(x+w/2+12+i%2?+2:-2, y-6+i*2); } ctx.stroke();
+  // earpiece (pequeña espiral SIN líneas largas)
+  ctx.strokeStyle="#666"; ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let i=0;i<6;i++){
+    const px = x + w/2 + 10 + Math.cos(i*0.9)*3;
+    const py = y - 8 + i*2;
+    if(i===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
   // placa y texto ICE Co.
-  ctx.fillStyle="#ffd54a"; ctx.fillRect(x+6, y+h-16, 24, 10);
-  ctx.fillStyle="#111"; ctx.font="bold 8px system-ui"; ctx.fillText("ICE Co.", x+6, y+h-8);
+  ctx.fillStyle="#ffd54a"; ctx.fillRect(x+6, y+h-16, 28, 10);
+  ctx.fillStyle="#111"; ctx.font="bold 8px system-ui"; ctx.fillText("ICE Co.", x+7, y+h-8);
 }
 function drawNopal(n){
   ctx.fillStyle="#16a34a"; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,2*Math.PI); ctx.fill();
@@ -298,15 +295,16 @@ function update(dt){
   if(player.y<60){
     state.score += 100*state.level;
     state.level++;
-    toast("Ya chinge 🥳"); say("¡Yeeeppa, yeeeppa!");
+    toast("Ya chinge 🥳");
     nextLevel();
   }
 }
 function nextLevel(){ saveSnapshot(); player.reset(); makeLevel(state.level); updateHud(); }
 function hit(){
   state.hits++; state.lives--;
-  toast("Se chingo 💥"); say("¡Ay! Se chingo");
-  if(state.lives<=0){ saveSnapshot(); state.running=false; stopMusic(); updateHud(); return; }
+  toast("Se chingo 💥");
+  playLose_thenResume();
+  if(state.lives<=0){ saveSnapshot(); state.running=false; updateHud(); return; }
   player.reset(); updateHud();
 }
 
@@ -397,20 +395,19 @@ $("#btnStart").addEventListener("click", ()=>{
   if(!state.running){
     if(!player.ready){ $("#imgOverlay").style.display="flex"; return; }
     resetAll(); state.running=true; state.paused=false; state.timeStart=Date.now();
-    audioInit(); startMusic();
+    playYehaThenBg();
   }
 });
 $("#btnPause").addEventListener("click", ()=>{
   if(!state.running) return;
   state.paused=!state.paused; toast(state.paused? "Pausado":"Reanudado");
+  if(state.paused){ try{ A.bg.pause(); }catch{}; } else { playBg(); }
 });
 $("#btnReset").addEventListener("click", ()=>{
   resetAll(); state.timeStart=Date.now(); state.running=true; state.paused=false;
+  playBg();
 });
-$("#btnAudio").addEventListener("click", ()=>{
-  if(bgAudio.paused && !state.paused){ audioInit(); startMusic(); }
-  else { stopMusic(); }
-});
+$("#btnAudio").addEventListener("click", toggleMute);
 $("#btnExport").addEventListener("click", ()=>{
   const arr=JSON.parse(localStorage.getItem("cruzando_hist")||"[]");
   const csv=["Fecha,Nivel,Puntos,Vidas,Golpes,Tiempo(s)"].concat(arr.map(r=>[r.date,r.level,r.score,r.lives,r.hits,r.time].join(","))).join("\n");
