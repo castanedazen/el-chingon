@@ -50,7 +50,7 @@ canvas { touch-action: none; }
     <button class="btn" id="btnPause">Pausar</button>
     <button class="btn" id="btnReset">Reiniciar</button>
     <button class="btn" id="btnAudio">Música</button>
-    <label style="font-weight:700">Volumen <input id="vol" type="range" min="0" max="1" step="0.01" value="1"></label>
+    <label style="font-weight:700">Volumen <input id="vol" type="range" min="0" max="1" step="0.01" value="0.6"></label>
   </header>
   <h1>🇲🇽 Cruzando los Nopales</h1>
 
@@ -132,9 +132,9 @@ const state={
   level:1, score:0, lives:3, hits:0,
   timeStart:0,
   slowUntil:0, bootsUntil:0,
-  tacoUntil:0,                 // 🌮 invincible & slower
   obstacles:[], nopales:[], drops:[],
-  invincibleUntil: 0
+  invincibleUntil: 0,
+  celebratingUntil: 0
 };
 
 /* ===== player ===== */
@@ -147,7 +147,7 @@ function playerRadius(){ return 20 * (player.size/BASE_PLAYER); }
 function playerNopalPad(){ return 18 * (player.size/BASE_PLAYER); }
 function clampPlayer(){
   const padX=22*(player.size/BASE_PLAYER);
-  const bottom = SAFE_START*0.6;
+  const bottom = SAFE_START*0.6; // keep feet above the very bottom
   player.x=clamp(player.x,padX,W-padX);
   player.y=clamp(player.y,SAFE_GOAL+20,H-bottom);
 }
@@ -171,8 +171,17 @@ const ENEMIES={imgs:[],ready:false};
   });
 })();
 
-/* ===== audio & tiny SFX beeps ===== */
+/* ===== audio (quieter base volumes) ===== */
 const A={ yeha:$("#sYeha"), bg:$("#sBg"), lose:$("#sLose"), muted:false };
+const BASE_VOL = { bg:0.35, yeha:0.50, lose:0.60 };     // calm defaults
+let volFactor = parseFloat($("#vol").value || "0.6");    // slider multiplies these
+function applyVolumes(){
+  A.bg.volume   = BASE_VOL.bg   * volFactor;
+  A.yeha.volume = BASE_VOL.yeha * volFactor;
+  A.lose.volume = BASE_VOL.lose * volFactor;
+}
+applyVolumes();
+
 function stopAll(){ [A.yeha,A.bg,A.lose].forEach(a=>{ try{ a.pause(); a.currentTime=0; }catch{} }); }
 function playBg(){ A.bg.currentTime=0; const p=A.bg.play(); if(p&&p.catch)p.catch(()=>{}); }
 function primeAudio(el){
@@ -189,19 +198,7 @@ function playYehaThenBg(){
 }
 function toggleMute(){ A.muted=!A.muted; [A.yeha,A.bg,A.lose].forEach(a=> a.muted=A.muted); }
 $("#btnAudio").addEventListener("click", toggleMute);
-$("#vol").addEventListener("input",e=>{ const v=parseFloat(e.target.value); [A.yeha,A.bg,A.lose].forEach(a=> a.volume=v); });
-
-/* WebAudio micro-beeps (no extra files) */
-let AC;
-function beep(freq=880, ms=100, vol=0.2){
-  try{
-    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
-    const o = AC.createOscillator(), g = AC.createGain();
-    o.frequency.value = freq; o.type="square";
-    g.gain.value = vol; o.connect(g); g.connect(AC.destination);
-    o.start(); setTimeout(()=>{ o.stop(); }, ms);
-  }catch{}
-}
+$("#vol").addEventListener("input",e=>{ volFactor=parseFloat(e.target.value||"0.6"); applyVolumes(); });
 
 /* pause on tab hide */
 document.addEventListener("visibilitychange",()=>{
@@ -216,23 +213,88 @@ function vibrate(ms=60){
   if (navigator.vibrate) navigator.vibrate(ms);
 }
 
-/* ===== difficulty & lanes ===== */
+/* ===== difficulty ===== */
 function guardSpeedFactor(n){ return Math.min(2.0, Math.pow(1.07, n-1)); }
 
-/* ===== world ===== */
-let laneGapGlobal = 80; // updated per level for trumpet/stun calc
+/* ===== celebration particles ===== */
+const confetti=[];
+const emojiRain=[];
+const WIN_EMOJIS = ["🌮","🌯","🌶️","🪅","🎺","🎉","🎊","💃","🕺","🧒","🪇","👒"]; // sombrero via hat
+function spawnConfettiBurst(cx,cy,count=150){
+  for(let i=0;i<count;i++){
+    confetti.push({
+      x: cx + rand(-40,40),
+      y: cy + rand(-10,10),
+      vx: rand(-240,240),
+      vy: rand(-420,-160),
+      g: 600,
+      life: rand(0.9,1.4),
+      size: rand(2,4),
+      hue: Math.floor(rand(0,360))
+    });
+  }
+}
+function spawnEmojiRain(count=40){
+  for(let i=0;i<count;i++){
+    emojiRain.push({
+      x: rand(30,W-30),
+      y: rand(-120,-10),
+      vx: rand(-30,30),
+      vy: rand(120,220),
+      rot: rand(-Math.PI,Math.PI),
+      spin: rand(-1.5,1.5),
+      life: rand(1.2,2.0),
+      emoji: WIN_EMOJIS[Math.floor(Math.random()*WIN_EMOJIS.length)]
+    });
+  }
+}
+function updateCelebration(dt){
+  for(let i=confetti.length-1;i>=0;i--){
+    const c=confetti[i];
+    c.x+=c.vx*dt; c.y+=c.vy*dt; c.vy+=c.g*dt; c.life-=dt;
+    if(c.life<=0 || c.y>H+40) confetti.splice(i,1);
+  }
+  for(let i=emojiRain.length-1;i>=0;i--){
+    const e=emojiRain[i];
+    e.x+=e.vx*dt; e.y+=e.vy*dt; e.rot+=e.spin*dt; e.life-=dt;
+    if(e.life<=0 || e.y>H+80) emojiRain.splice(i,1);
+  }
+}
+function drawCelebration(){
+  // confetti squares
+  for(const c of confetti){
+    ctx.save();
+    ctx.globalAlpha = Math.max(0,c.life);
+    ctx.fillStyle = `hsl(${c.hue} 85% 60%)`;
+    ctx.translate(c.x, c.y);
+    ctx.rotate((c.vx+c.vy)*0.002);
+    ctx.fillRect(-c.size/2,-c.size/2,c.size,c.size);
+    ctx.restore();
+  }
+  // emoji rain
+  for(const e of emojiRain){
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, e.life);
+    ctx.translate(e.x, e.y);
+    ctx.rotate(e.rot);
+    ctx.font = "24px system-ui";
+    ctx.fillText(e.emoji, -12, 10);
+    ctx.restore();
+  }
+}
 
+/* ===== world ===== */
 function makeLevel(n){
   state.obstacles.length=0; state.nopales.length=0; state.drops.length=0;
 
-  const lanes = Math.min(8, 5 + Math.floor((n-1)/2));    // more lanes on tall field
+  const lanes = Math.min(8, 5 + Math.floor((n-1)/2));    // distributed vertically
   const perLane = Math.min(6, 3 + Math.floor((n-1)/2));
   const speedFactor = guardSpeedFactor(n);
 
+  // Distribute lanes from just below the goal to just above the start zone
   const yMin = SAFE_GOAL + 40;
   const yMax = H - SAFE_START - 40;
   const laneGap = (yMax - yMin) / Math.max(1, lanes-1);
-  laneGapGlobal = laneGap;
 
   for(let i=0;i<lanes;i++){
     const y   = Math.round(yMin + i*laneGap);
@@ -251,15 +313,8 @@ function makeLevel(n){
         spriteIndex = candidates[Math.floor(Math.random()*candidates.length)];
       }
 
-      // choose a behavior
-      const behaviors = ["straight","zigzag","stopgo","chase"];
-      const behavior = behaviors[Math.floor(Math.random()*behaviors.length)];
       const w=Math.round(56*SCALE_GUARD), h=Math.round(54*SCALE_GUARD);
-
-      state.obstacles.push({
-        x, y, v: dir * rand(minV, maxV), w, h, tie:(i%2? "#e11d48" : "#2563eb"),
-        spriteIndex, behavior, t:Math.random()*1000 // timer/phase
-      });
+      state.obstacles.push({ x, y, v: dir * rand(minV, maxV), w, h, tie:(i%2? "#e11d48" : "#2563eb"), spriteIndex });
     }
   }
 
@@ -270,33 +325,32 @@ function makeLevel(n){
     state.nopales.push({ x:rand(30,W-80), y, r:rand(22,36) });
   }
 
-  // Pickups (bigger) + 🌮 & 🎺
-  const pool=[
-    {type:"torta",color:"#f97316"},
-    {type:"pulque",color:"#60a5fa"},
-    {type:"huaraches",color:"#f59e0b"},
-    {type:"taco",color:"#fbbf24"},
-    {type:"trumpet",color:"#a78bfa"}
-  ];
+  // Pickups (a bit bigger)
+  const pool=[{type:"torta",color:"#f97316"},{type:"pulque",color:"#60a5fa"},{type:"huaraches",color:"#f59e0b"},{type:"huaraches",color:"#f59e0b"}];
   const dropR=Math.round(14*DROP_SCALE);
-  const count=3; // 3 per level
+  const count=2+Math.floor(Math.random()*2);
+  let hasH=false;
   for(let i=0;i<count;i++){
     const d=pool[Math.floor(Math.random()*pool.length)];
+    if(d.type==="huaraches") hasH=true;
     state.drops.push({type:d.type,x:rand(30,W-30),y:rand(yMin,yMax),r:dropR,color:d.color});
   }
+  if(!hasH) state.drops.push({type:"huaraches",x:rand(30,W-30),y:rand(yMin,yMax),r:dropR,color:"#f59e0b"});
 }
 
 /* ===== drawing ===== */
 function drawTricolor(){
+  // Three bands sized to field; goal is top, start zone is bottom
   const stripe=H/3;
   ctx.fillStyle="#128a3a"; ctx.fillRect(0,0,W,stripe);
   ctx.fillStyle="#ffffff"; ctx.fillRect(0,stripe,W,stripe);
   ctx.fillStyle="#d01c1f"; ctx.fillRect(0,2*stripe,W,stripe);
 
-  // subtle header for goal & start zone shading
+  // subtle header line at goal & a faint line at start zone
   ctx.save(); ctx.globalAlpha=.18; ctx.fillStyle="#000"; ctx.fillRect(0,0,W,SAFE_GOAL); ctx.restore();
   ctx.save(); ctx.globalAlpha=.10; ctx.fillStyle="#000"; ctx.fillRect(0,H-SAFE_START,W,SAFE_START); ctx.restore();
 
+  // goal label
   ctx.strokeStyle="#111"; ctx.strokeRect(0,0,W,SAFE_GOAL);
   ctx.fillStyle="#111"; ctx.font="bold 16px system-ui";
   const label="La Frontera"; const tw=ctx.measureText(label).width; ctx.fillText(label,(W-tw)/2,36);
@@ -308,11 +362,6 @@ function drawPlayer(){
   ctx.beginPath(); ctx.ellipse(x, y+size*0.9, size*0.8, size*0.35, 0, 0, Math.PI*2); ctx.fill();
   const h=size*2.8, w=h*0.9;
   ctx.drawImage(player.img, x-w/2, y-h/1.7, w, h);
-
-  if (Date.now()<state.tacoUntil){ // taco shield ring
-    ctx.strokeStyle="#f59e0b"; ctx.lineWidth=4;
-    ctx.beginPath(); ctx.arc(x, y-10, playerRadius()+8, 0, 2*Math.PI); ctx.stroke();
-  }
 }
 function drawGuard(o){
   const x=o.x,y=o.y,w=o.w,h=o.h, idx=o.spriteIndex;
@@ -324,12 +373,7 @@ function drawNopal(n){
   ctx.strokeStyle="#0f5132"; ctx.stroke();
 }
 function drawDrop(d){
-  const icon=
-    d.type==="torta"   ? "🥪" :
-    d.type==="huaraches" ? "👡" :
-    d.type==="pulque"  ? "🍶" :
-    d.type==="taco"    ? "🌮" :
-    d.type==="trumpet" ? "🎺" : "⭐";
+  const icon=d.type==="torta"?"🥪":d.type==="huaraches"?"👡":d.type==="pulque"?"🍶":"⭐";
   ctx.fillStyle=d.color; ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,2*Math.PI); ctx.fill();
   ctx.strokeStyle="#111"; ctx.lineWidth=2; ctx.stroke();
   ctx.fillStyle="#111"; ctx.font="bold 18px system-ui"; ctx.fillText(icon,d.x-9,d.y+6);
@@ -344,9 +388,8 @@ const keys=new Set();
 window.addEventListener("keydown",e=>{ if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault(); keys.add(e.key); });
 window.addEventListener("keyup",e=>keys.delete(e.key));
 function handleKeys(dt){
-  const slowFromNopal = (Date.now()<state.slowUntil) ? 0.35 : 1;
-  const slowFromTaco  = (Date.now()<state.tacoUntil) ? 0.75 : 1; // taco slows a bit
-  const base = player.speed * slowFromNopal * slowFromTaco;
+  if(Date.now() < state.celebratingUntil) return; // ignore controls during celebration
+  const base=(Date.now()<state.slowUntil)?player.speed*0.35:player.speed;
   const s=base*60*dt;
   if(keys.has("ArrowUp")) player.y-=s;
   if(keys.has("ArrowDown")) player.y+=s;
@@ -362,7 +405,10 @@ function canvasToGameCoords(clientX,clientY){
   const nx=(clientX-r.left)/r.width, ny=(clientY-r.top)/r.height;
   return { x:nx*W, y:ny*H };
 }
-function movePlayerToClientPoint(clientX,clientY){ const p=canvasToGameCoords(clientX,clientY); player.x=p.x; player.y=p.y; clampPlayer(); }
+function movePlayerToClientPoint(clientX,clientY){
+  if(Date.now() < state.celebratingUntil) return;
+  const p=canvasToGameCoords(clientX,clientY); player.x=p.x; player.y=p.y; clampPlayer();
+}
 function onPointerDown(e){ dragging=true; movePlayerToClientPoint(e.clientX,e.clientY); e.preventDefault(); }
 function onPointerMove(e){ if(!dragging) return; movePlayerToClientPoint(e.clientX,e.clientY); e.preventDefault(); }
 function onPointerUp(e){ dragging=false; e.preventDefault(); }
@@ -389,7 +435,8 @@ function toast(msg){
 /* ===== core game ===== */
 function resetAll(){
   state.level=1; state.score=0; state.lives=3; state.hits=0;
-  state.slowUntil=0; state.bootsUntil=0; state.tacoUntil=0;
+  state.slowUntil=0; state.bootsUntil=0;
+  state.celebratingUntil=0;
   player.reset();
   state.invincibleUntil=Date.now()+1000;
   makeLevel(state.level); updateHud();
@@ -401,9 +448,9 @@ function nextLevel(){
   updateHud();
 }
 function hit(){
-  if (Date.now()<state.tacoUntil) return; // taco shield absorbs
+  if(Date.now() < state.celebratingUntil) return; // ignore hits during celebration
   state.hits++; state.lives--;
-  vibrate(120); beep(200,120,0.2);
+  vibrate(80); // haptic on hit
   toast("Se chingó 💥");
   playLose_thenResume();
   if(state.lives<=0){ state.running=false; updateHud(); return; }
@@ -412,45 +459,38 @@ function hit(){
   updateHud();
 }
 
-/* Clear current lane with the 🎺 trumpet */
-function clearCurrentLane(){
-  const y = player.y;
-  for(const o of state.obstacles){
-    if (Math.abs(o.y - y) <= laneGapGlobal*0.45){
-      // push off-screen based on direction
-      if (o.v>0){ o.x = -o.w - 20; }
-      else      { o.x = W + 20; }
-    }
-  }
-  vibrate(80); beep(1000,120,0.25);
-  toast("¡Mariachi! 🎺 ¡Libre la pista!");
+/* Celebrate + advance after a short delay */
+function celebrateAndAdvance(){
+  // points & UI
+  state.score+=100*state.level;
+  toast("¡Ya chingué! 🥳");
+  // big celebration
+  spawnConfettiBurst(player.x, player.y-30, 180);
+  spawnEmojiRain(50);
+  // lock controls & movement briefly
+  state.celebratingUntil = Date.now() + 1400;
+  // mild extra haptic
+  vibrate(40);
+  // advance after the show
+  setTimeout(()=>{
+    if(!state.running) return;
+    state.level++;
+    nextLevel();
+  }, 1200);
 }
 
 function update(dt){
-  // guards move + behaviors
+  // during celebration: just animate confetti/emoji and skip game logic
+  if(Date.now() < state.celebratingUntil){
+    updateCelebration(dt);
+    return;
+  }
+
   for(const o of state.obstacles){
-    o.t += dt;
-    // horizontal base
-    o.x += o.v*60*dt;
-
-    // behaviors
-    if (o.behavior==="zigzag"){
-      o.y += Math.sin(o.t*4) * 8 * dt * 60; // gentle vertical shimmy
-      o.y = clamp(o.y, SAFE_GOAL+30, H-SAFE_START-30);
-    } else if (o.behavior==="stopgo"){
-      const phase = Math.floor(o.t*2)%4; // stop for a bit
-      if (phase===0) o.x -= o.v*60*dt; // undo move (pause)
-    } else if (o.behavior==="chase"){
-      const dy = player.y - o.y;
-      o.y += Math.sign(dy) * Math.min(1.2, Math.abs(dy)/80) * 22 * dt; // drift toward player
-      o.y = clamp(o.y, SAFE_GOAL+30, H-SAFE_START-30);
-    }
-
+    o.x+=o.v*60*dt;
     if(o.v>0 && o.x>W+10) o.x=-o.w-10;
     if(o.v<0 && o.x<-o.w-10) o.x=W+10;
   }
-
-  // nopal slow unless boots active
   let onNopal=false;
   for(const n of state.nopales){
     const dx=player.x-n.x, dy=player.y-n.y;
@@ -458,40 +498,24 @@ function update(dt){
   }
   if(onNopal && Date.now()>state.bootsUntil) state.slowUntil=Date.now()+900;
 
-  // collision with guards (respect brief spawn invincibility)
   if(Date.now()>state.invincibleUntil){
     for(const o of state.obstacles){
       const hb=playerHitbox();
       if(rectHit(hb.x,hb.y,hb.w,hb.h,o.x,o.y,o.w,o.h)){ hit(); break; }
     }
   }
-
-  // pickups
   for(let i=state.drops.length-1;i>=0;i--){
     const d=state.drops[i];
     if(circleHit(player.x,player.y,playerRadius(), d.x,d.y,d.r)){
-      if(d.type==="torta"){ 
-        state.lives++; toast("Torta 🥪 +1 vida"); beep(900,90,0.2);
-      } else if(d.type==="huaraches"){
-        state.bootsUntil=Date.now()+6000; toast("Huaraches 👡 ¡anti-nopal!"); beep(750,90,0.2);
-      } else if(d.type==="pulque"){
-        state.invincibleUntil = Math.max(state.invincibleUntil, Date.now()+1500);
-        toast("Pulque 🍶 ¡invencible!"); beep(600,120,0.2);
-      } else if(d.type==="taco"){
-        state.tacoUntil = Date.now()+5000; toast("Taco 🌮 ¡escudo!"); beep(500,110,0.2);
-      } else if(d.type==="trumpet"){
-        clearCurrentLane();
-      }
+      if(d.type==="torta"){ state.lives++; toast("Torta 🥪 +1 vida"); }
+      else if(d.type==="huaraches"){ state.bootsUntil=Date.now()+6000; toast("Huaraches 👡 ¡anti-nopal!"); }
+      else if(d.type==="pulque"){ state.invincibleUntil=Math.max(state.invincibleUntil, Date.now()+1500); toast("Pulque 🍶 ¡invencible!"); }
       state.drops.splice(i,1); updateHud();
     }
   }
-
-  // win/level complete at the top safe goal band
+  // win
   if(player.y<SAFE_GOAL){
-    state.score+=100*state.level;
-    state.level++;
-    toast("Ya chingué 🥳"); beep(1200,140,0.25);
-    nextLevel();
+    celebrateAndAdvance();
   }
 }
 
@@ -504,14 +528,17 @@ function loop(ts){
 
   ctx.clearRect(0,0,W,H);
   drawTricolor();
-  // lane guides
-  for(let y=SAFE_GOAL+40; y<H-SAFE_START; y+=Math.max(60,laneGapGlobal*0.9)){
-    ctx.save(); ctx.globalAlpha=.12; ctx.fillStyle="#fff"; ctx.fillRect(0,y,W,40); ctx.restore();
+  // lane stripes to help judge distance (avoid safe zones)
+  for(let y=SAFE_GOAL+40; y<H-SAFE_START; y+=70){
+    ctx.save(); ctx.globalAlpha=.15; ctx.fillStyle="#fff"; ctx.fillRect(0,y,W,40); ctx.restore();
   }
   state.nopales.forEach(drawNopal);
   state.obstacles.forEach(drawGuard);
   state.drops.forEach(drawDrop);
   drawPlayer();
+
+  // celebration overlays
+  drawCelebration();
 
   updateHud();
   requestAnimationFrame(loop);
@@ -532,7 +559,9 @@ function startGameNow(){
   resetAll();
   state.timeStart=Date.now();
   state.running=true; state.paused=false;
+  // prime sounds for iOS under the first tap/gesture too
   primeAudio(A.lose);
+  applyVolumes();
   playYehaThenBg();
   fitCanvas();
 }
