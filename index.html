@@ -138,7 +138,9 @@ const state={
   level:1, score:0, lives:3, hits:0,
   timeStart:0,
   slowUntil:0, bootsUntil:0,
-  obstacles:[], nopales:[], drops:[]
+  obstacles:[], nopales:[], drops:[],
+  /* brief invincibility window after start/level/hit */
+  invincibleUntil: 0
 };
 
 const player={ x:W/2, y:H-60, size:28, speed:6, img:null, ready:false,
@@ -183,18 +185,29 @@ function toggleMute(){
 }
 
 /* ========== mundo ========== */
+/* cap growth + even spacing to avoid clumps */
 function makeLevel(n){
   state.obstacles.length=0; state.nopales.length=0; state.drops.length=0;
 
-  const lanes=4+Math.min(4,n);
+  const lanes  = Math.min(6, 4 + Math.floor((n-1)/2));  // 4..6
+  const perLane= Math.min(5, 3 + Math.floor((n-1)/2));  // 3..5
+
   for(let i=0;i<lanes;i++){
     const y = 120 + i*60;
-    const speed = (1.1 + n*0.25) * (i%2?1:-1);
-    const count = 3 + Math.floor(n/2);
-    for(let k=0;k<count;k++){
+    const dir = (i%2? 1 : -1);
+    const base = 1.0 + n*0.15;
+    const minV = Math.min(2.2, base*0.8);
+    const maxV = Math.min(2.6, base*1.2);
+
+    const segment = W / perLane;
+    for(let k=0;k<perLane;k++){
+      const jitter = segment*0.35*(Math.random()-0.5);
+      const x = k*segment + segment/2 + jitter;
       state.obstacles.push({
-        x:rand(0,W), y, v:speed*rand(1.0,1.6),
-        w:56, h:54, tie: (i%2? "#e11d48" : "#2563eb")
+        x, y,
+        v: dir * rand(minV, maxV),
+        w:56, h:54,
+        tie: (i%2? "#e11d48" : "#2563eb")
       });
     }
   }
@@ -204,8 +217,24 @@ function makeLevel(n){
     state.nopales.push({ x:rand(30,W-80), y:rand(220,H-160), r:rand(22,36) });
   }
 
-  state.drops.push({type:"agua", x:rand(30,W-30), y:rand(140,H-200), r:14, color:"#1f7aff"});
-  state.drops.push({type:"botas", x:rand(30,W-30), y:rand(140,H-200), r:14, color:"#f59e0b"});
+  /* --- NEW DROPS: torta, huaraches, pulque --- */
+  const pool = [
+    {type:"torta",     color:"#f97316"},  // naranja
+    {type:"huaraches", color:"#f59e0b"},  // ámbar
+    {type:"pulque",    color:"#60a5fa"}   // azul claro
+  ];
+  // genera 2–3 objetos por nivel, posiciones aleatorias
+  const count = 2 + Math.floor(Math.random()*2);
+  for(let i=0;i<count;i++){
+    const d = pool[Math.floor(Math.random()*pool.length)];
+    state.drops.push({
+      type:d.type,
+      x:rand(30,W-30),
+      y:rand(140,H-200),
+      r:14,
+      color:d.color
+    });
+  }
 }
 
 /* ========== dibujo ========== */
@@ -255,16 +284,22 @@ function drawNopal(n){
   for(let i=0;i<8;i++){ const a=i*Math.PI/4; ctx.beginPath(); ctx.arc(n.x+Math.cos(a)*(n.r-6), n.y+Math.sin(a)*(n.r-6), 2.5, 0, 2*Math.PI); ctx.fill(); }
 }
 function drawDrop(d){
+  // iconos por tipo
+  const icon = d.type==="torta" ? "🥪" :
+               d.type==="huaraches" ? "👡" :
+               d.type==="pulque" ? "🍶" : "⭐";
   ctx.fillStyle=d.color; ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,2*Math.PI); ctx.fill();
   ctx.strokeStyle="#111"; ctx.lineWidth=2; ctx.stroke();
-  ctx.fillStyle="#111"; ctx.font="bold 12px system-ui"; ctx.fillText(d.type==="agua"?"💧":"👢", d.x-7, d.y+5);
+  ctx.fillStyle="#111"; ctx.font="bold 14px system-ui"; ctx.fillText(icon, d.x-9, d.y+6);
 }
 
 /* ========== lógica ========== */
 function resetAll(){
   state.level=1; state.score=0; state.lives=3; state.hits=0;
   state.slowUntil=0; state.bootsUntil=0;
-  player.reset(); makeLevel(state.level); updateHud();
+  player.reset(); 
+  state.invincibleUntil = Date.now() + 1000; // grace at game start
+  makeLevel(state.level); updateHud();
 }
 
 function update(dt){
@@ -281,15 +316,25 @@ function update(dt){
   }
   if(onNopal && Date.now()>state.bootsUntil){ state.slowUntil=Date.now()+900; }
 
-  for(const o of state.obstacles){
-    if(rectHit(player.x-18,player.y-22,36,44, o.x,o.y,o.w,o.h)){ hit(); break; }
+  // ignore collisions while invincible
+  if (Date.now() > state.invincibleUntil) {
+    for(const o of state.obstacles){
+      if(rectHit(player.x-18,player.y-22,36,44, o.x,o.y,o.w,o.h)){ hit(); break; }
+    }
   }
 
+  // recoger objetos
   for(let i=state.drops.length-1;i>=0;i--){
     const d=state.drops[i];
     if(circleHit(player.x,player.y,20, d.x,d.y,d.r)){
-      if(d.type==="agua"){ state.lives++; toast("Vida extra 💧"); }
-      else { state.bootsUntil=Date.now()+6000; toast("Botas anti-nopal 👢"); }
+      if(d.type==="torta"){ 
+        state.lives++; toast("Torta 🥪 +1 vida");
+      } else if(d.type==="huaraches"){
+        state.bootsUntil=Date.now()+6000; toast("Huaraches 👡 ¡anti-nopal!");
+      } else if(d.type==="pulque"){
+        state.invincibleUntil = Math.max(state.invincibleUntil, Date.now()+1500);
+        toast("Pulque 🍶 ¡invencible!");
+      }
       state.drops.splice(i,1); updateHud();
     }
   }
@@ -301,13 +346,21 @@ function update(dt){
     nextLevel();
   }
 }
-function nextLevel(){ saveSnapshot(); player.reset(); makeLevel(state.level); updateHud(); }
+function nextLevel(){ 
+  saveSnapshot(); 
+  player.reset(); 
+  state.invincibleUntil = Date.now() + 1000; // grace after level up
+  makeLevel(state.level); 
+  updateHud(); 
+}
 function hit(){
   state.hits++; state.lives--;
   toast("Se chingo 💥");
   playLose_thenResume();
   if(state.lives<=0){ saveSnapshot(); state.running=false; updateHud(); return; }
-  player.reset(); updateHud();
+  player.reset(); 
+  state.invincibleUntil = Date.now() + 900; // brief grace after a hit
+  updateHud();
 }
 
 function rectHit(ax,ay,aw,ah,bx,by,bw,bh){ return ax<bx+bw && ax+aw>bx && ay<by+bh && ay+ah>by; }
