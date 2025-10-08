@@ -7,13 +7,13 @@
 <style>
 :root{ --rojo:#e11d48; --negro:#111827; }
 html,body{height:100%;margin:0;background:#fff;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--negro)}
-.wrap{max-width:900px;margin:0 auto;padding:10px}
+.wrap{max-width:900px;margin:0 auto;padding:8px}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 h1{margin:6px 0 10px;font-size:clamp(18px,4.8vw,28px);color:var(--rojo)}
 .btn{cursor:pointer;border:2px solid var(--negro);border-radius:12px;padding:.42rem .7rem;font-weight:800;background:#fff;box-shadow:2px 3px 0 var(--negro)}
 input[type=range]{width:150px}
 .stage{position:relative}
-canvas{width:100%;aspect-ratio:4/3;border:4px solid var(--negro);border-radius:16px;box-shadow:6px 8px 0 var(--negro);background:#fff;display:block}
+canvas{width:100%;border:4px solid var(--negro);border-radius:16px;box-shadow:6px 8px 0 var(--negro);background:#fff;display:block}
 
 /* HUD over canvas */
 .hud{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
@@ -30,23 +30,19 @@ html, body { touch-action: none; overscroll-behavior: none; }
 button, .btn { touch-action: manipulation; }
 canvas { touch-action: none; }
 
-/* PHONE: maximize play area */
+/* PHONE: the JS sets exact canvas size to fill ~98% of the viewport below header/title */
 @media (max-width: 900px){
-  .wrap{max-width:100%; padding:6px}
-  header{gap:6px}
+  .wrap{max-width:100%}
   .btn{font-size:14px;padding:.35rem .6rem;border-radius:10px;box-shadow:3px 4px 0 var(--negro)}
-  /* JS sets exact size; keep ratio */
-  canvas{ width:100%; height:auto; aspect-ratio:4/3; }
 }
 
-/* hide the old history/side bits completely if they exist */
+/* hide old side/history if present */
 .grid, .col, .hist, details{ display:none !important; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <button class="btn" id="btnStart">Iniciar</button>
     <button class="btn" id="btnPause">Pausar</button>
     <button class="btn" id="btnReset">Reiniciar</button>
     <button class="btn" id="btnAudio">Música</button>
@@ -55,7 +51,7 @@ canvas { touch-action: none; }
   <h1>🇲🇽 Cruzando los Nopales</h1>
 
   <div class="stage">
-    <canvas id="game" width="800" height="600" aria-label="Juego Cruzando los Nopales"></canvas>
+    <canvas id="game" aria-label="Juego Cruzando los Nopales"></canvas>
 
     <!-- HUD -->
     <div class="hud">
@@ -85,45 +81,45 @@ const $ = s=>document.querySelector(s);
 const rand=(a,b)=>Math.random()*(b-a)+a;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
-/* ===== Hi-DPI canvas ===== */
+/* ===== Canvas (dynamic height to fill screen) ===== */
 const canvas=$("#game"), ctx=canvas.getContext("2d");
 const DPR=Math.max(1,Math.min(2,window.devicePixelRatio||1));
-const LOGICAL_W=800, LOGICAL_H=600;
-canvas.width = LOGICAL_W * DPR; canvas.height = LOGICAL_H * DPR;
-canvas.style.width = LOGICAL_W+"px"; canvas.style.height = LOGICAL_H+"px";
-ctx.scale(DPR,DPR);
-const W=LOGICAL_W, H=LOGICAL_H;
+let W=800;      // logical width is fixed
+let H=600;      // logical height is dynamic (we change it below)
 
-/* Fit canvas to available space (~90% of screen on phones, keep 4:3) */
+/* set logical height from aspect, update backing store & transform */
+function setLogicalSize(aspect){ // aspect = height/width
+  H = Math.max(500, Math.round(W * aspect));      // never tiny
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);              // reset & apply DPR
+}
+
+/* fit canvas CSS size and logical height to fill ~98% of viewport below header/title */
 function fitCanvas(){
   const stage = canvas.parentElement;
   const headerH = document.querySelector('header')?.getBoundingClientRect().height || 0;
   const titleH  = document.querySelector('h1')?.getBoundingClientRect().height || 0;
 
-  // Visual viewport (iOS friendly)
   const vv = window.visualViewport;
   const vw = vv ? vv.width  : window.innerWidth;
   const vh = vv ? vv.height : window.innerHeight;
 
-  // Use ~90% of screen height, but not less than what remains under header/title
-  const pad = 8;
-  const targetAvailH = Math.max(260, Math.min(vh * 0.90, vh - headerH - titleH - pad));
+  const availH = Math.max(260, (vh - headerH - titleH) * 0.98);
+  const targetW = Math.min(stage.clientWidth, vw);       // container or viewport width
+  const targetH = Math.max(260, availH);                 // use nearly full height
+  const aspect  = targetH / targetW;                     // height/width, often > 4/3
 
-  // Stage width (container width)
-  const cw = stage.clientWidth;
-
-  // Largest 4:3 size that fits both width and target height
-  let targetW = Math.min(cw, targetAvailH * 4/3);
-  let targetH = targetW * 3/4;
-  if (targetH > targetAvailH) { targetH = targetAvailH; targetW = targetH * 4/3; }
-
+  // update logical & CSS sizes
+  setLogicalSize(aspect);
   canvas.style.width  = Math.round(targetW) + 'px';
   canvas.style.height = Math.round(targetH) + 'px';
 }
-['resize','orientationchange'].forEach(ev=>window.addEventListener(ev, fitCanvas));
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('orientationchange', fitCanvas);
 document.addEventListener('DOMContentLoaded', fitCanvas);
 
-/* prevent iOS double-tap zoom */
+/* prevent iOS pinch/double-tap zoom */
 ['gesturestart','gesturechange','gestureend'].forEach(evt =>
   document.addEventListener(evt, e => e.preventDefault(), { passive:false })
 );
@@ -206,6 +202,12 @@ document.addEventListener("visibilitychange",()=>{
   }
 });
 
+/* ===== shake + vibration ===== */
+let shakeT=0;
+function startShake(sec=0.25){ shakeT = Math.max(shakeT, sec); }
+function applyShake(){ if(shakeT>0){ ctx.translate((Math.random()-0.5)*8, (Math.random()-0.5)*8); } }
+function vibrate(ms=120){ if(navigator.vibrate) navigator.vibrate(ms); }
+
 /* ===== difficulty ===== */
 function guardSpeedFactor(n){ return Math.min(1.9, Math.pow(1.07, n-1)); }
 
@@ -221,12 +223,13 @@ function drawParticles(){ for(const p of particles){ ctx.globalAlpha=Math.max(0,
 function makeLevel(n){
   state.obstacles.length=0; state.nopales.length=0; state.drops.length=0;
 
-  const lanes=Math.min(6,4+Math.floor((n-1)/2));
-  const perLane=Math.min(5,3+Math.floor((n-1)/2));
+  const lanes=Math.min(8,4+Math.floor((n-1)/2));           // allow more lanes if H is big
+  const perLane=Math.min(6,3+Math.floor((n-1)/2));
   const speedFactor=guardSpeedFactor(n);
 
+  const laneGap = Math.max(54, Math.min(70, (H-180)/lanes)); // distribute lanes through taller field
   for(let i=0;i<lanes;i++){
-    const y=120+i*60, dir=(i%2?1:-1);
+    const y=120+i*laneGap, dir=(i%2?1:-1);
     const minV=0.9*speedFactor, maxV=1.25*speedFactor;
     const segment=W/perLane;
     for(let k=0;k<perLane;k++){
@@ -237,8 +240,8 @@ function makeLevel(n){
       state.obstacles.push({x,y,v:dir*rand(minV,maxV),w:Math.round(56*SCALE_GUARD),h:Math.round(54*SCALE_GUARD),tie:(i%2?"#e11d48":"#2563eb"),spriteIndex});
     }
   }
-  const patches=4+Math.min(8,n*2);
-  for(let i=0;i<patches;i++) state.nopales.push({x:rand(30,W-80),y:rand(220,H-160),r:rand(22,36)});
+  const patches = Math.round(6 + (H/120));                 // more nopales on taller fields
+  for(let i=0;i<patches;i++) state.nopales.push({x:rand(30,W-80),y:rand(180,H-160),r:rand(22,36)});
   const pool=[{type:"torta",color:"#f97316"},{type:"pulque",color:"#60a5fa"},{type:"huaraches",color:"#f59e0b"},{type:"huaraches",color:"#f59e0b"}];
   const dropR=Math.round(14*DROP_SCALE);
   const count=2+Math.floor(Math.random()*2);
@@ -351,6 +354,7 @@ function nextLevel(){
 }
 function hit(){
   state.hits++; state.lives--;
+  startShake(); vibrate();                      // << shake + vibrate
   toast("Se chingó 💥");
   playLose_thenResume();
   if(state.lives<=0){ state.running=false; updateHud(); return; }
@@ -402,27 +406,26 @@ function loop(ts){
   const dt=(ts-prev)/1000; prev=ts;
   handleKeys(dt); update(dt);
 
+  ctx.save();
+  if(shakeT>0){ applyShake(); shakeT -= dt; }
   ctx.clearRect(0,0,W,H);
   drawTricolor();
-  for(let y=80;y<H;y+=60){ ctx.save(); ctx.globalAlpha=.15; ctx.fillStyle="#fff"; ctx.fillRect(0,y,W,60); ctx.restore(); }
+  // lane tint bands spread with dynamic height
+  const laneGap = Math.max(54, Math.min(70, (H-180)/Math.min(8,4+Math.floor((state.level-1)/2))));
+  for(let y=80;y<H;y+=laneGap){ ctx.save(); ctx.globalAlpha=.15; ctx.fillStyle="#fff"; ctx.fillRect(0,y,W,laneGap); ctx.restore(); }
   state.nopales.forEach(drawNopal);
   state.obstacles.forEach(drawGuard);
   state.drops.forEach(drawDrop);
   drawPlayer();
   drawParticles();
+  ctx.restore();
+
   updateParticles(dt);
   updateHud();
   requestAnimationFrame(loop);
 }
 
 /* ===== buttons ===== */
-$("#btnStart").addEventListener("click", ()=>{
-  if(!state.running){
-    if(!player.ready){ $("#imgOverlay").style.display="flex"; return; }
-    resetAll(); state.running=true; state.paused=false; state.timeStart=Date.now();
-    primeAudio(A.lose); playYehaThenBg(); fitCanvas();
-  }
-});
 $("#btnPause").addEventListener("click", ()=>{
   if(!state.running) return;
   state.paused=!state.paused; toast(state.paused? "Pausado":"Reanudado");
@@ -432,8 +435,20 @@ $("#btnReset").addEventListener("click", ()=>{
   resetAll(); state.timeStart=Date.now(); state.running=true; state.paused=false; playBg(); fitCanvas();
 });
 
-/* init */
-resetAll(); requestAnimationFrame(loop); fitCanvas();
+/* ===== Auto-start on load (no Iniciar button) ===== */
+function startGameNow(){
+  if(!player.ready){ $("#imgOverlay").style.display="flex"; } // still start logic even if image missing
+  resetAll();
+  state.running=true; state.paused=false; state.timeStart=Date.now();
+  // prime audio so later play() works on iOS
+  primeAudio(A.lose);
+}
+document.addEventListener('DOMContentLoaded', ()=>{
+  fitCanvas();
+  startGameNow();                 // << starts immediately
+  requestAnimationFrame(loop);
+});
+
 </script>
 </body>
 </html>
